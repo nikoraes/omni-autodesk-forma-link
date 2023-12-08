@@ -19,3 +19,4 @@ class Layers(object):
 class ServiceEndpoints(object):
     FILE_BROWSER = "/kit/formaconnector/filebrowser"
     FORMA_LINK = "/kit/formaconnector/link"
+    IMPORT_MESH = "/kit/formaconnector/importmesh"

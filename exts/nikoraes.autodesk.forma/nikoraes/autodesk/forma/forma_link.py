@@ -3,7 +3,9 @@ import uuid
 import asyncio
 import pathlib
 import shutil
+import numpy as np
 from collections import deque, Counter
+from fastapi import FastAPI, File, UploadFile, Form
 import omni.client
 import omni.ext
 import omni.kit.ui
@@ -14,7 +16,7 @@ import omni.ui as ui
 import omni.ext
 import carb
 from omni.services.core import main, routers
-from pxr import Usd, Sdf, UsdShade, UsdGeom
+from pxr import Gf, UsdGeom
 from . import (
     file_picker_dialog,
     forma_core,
@@ -22,9 +24,11 @@ from . import (
     forma_data,
 )
 from .forma_settings import FormaSettings
+from .forma_settings_window import FormaSettingsWindow
 from .forma_request_bodies import (
     FileBrowserRequestBody,
     FileBrowserResponseBody,
+    # FormaRequestBody,
     FormaRequestBody,
     FormaResponseBody,
 )
@@ -195,8 +199,8 @@ class RequestManager:
             # forma_core.save_stage()
 
             # await self._process_nucleus_task_data(nucleus_task_data)
-
-        return response """
+"""
+        return response
 
     async def _request_import_mesh(
         self, usd_paths: forma_data.UsdPaths, mesh_queue_id: str
@@ -312,6 +316,91 @@ class RequestManager:
         return len(self._task_queue)
 
 
+# Import mesh Endpoint
+import_mesh_router = routers.ServiceAPIRouter(tags=["connector"])
+
+
+# This function is the service endpoint for the import mesh
+@import_mesh_router.post(f"{forma_constants.ServiceEndpoints.IMPORT_MESH}/{{id}}")
+async def handle_import_mesh(id: str, file: UploadFile = File(...)):
+    # Read the file as bytes
+    file_bytes = await file.read()
+
+    # Convert the bytes to a numpy array of type float32
+    mesh = np.frombuffer(file_bytes, dtype=np.float32)
+
+    usd_context = omni.usd.get_context()
+
+    stage = usd_context.get_stage()
+
+    prim_path = f"/World/_{id}"
+
+    # Define a Mesh primitive on the stage
+    mesh_prim = UsdGeom.Mesh.Define(stage, prim_path)
+
+    vertices = mesh.reshape((-1, 3))
+
+    # Assuming `mesh` is your numpy array of vertex coordinates
+    # and `vertex_normals` is your numpy array of vertex normals
+    # Reshape the arrays to 2D arrays where each row is a vertex or a normal
+    # vertices = mesh.reshape((-1, 3))
+
+    # Calculate the vectors for two edges of each triangle
+    # edge1 = vertices[1::3] - vertices[0::3]
+    # edge2 = vertices[2::3] - vertices[0::3]
+
+    # # Calculate the cross product of the two edges to get the normal of each triangle
+    # triangle_normals = np.cross(edge1, edge2)
+
+    # # Normalize the triangle normals to unit length
+    # np.seterr(invalid="ignore")
+    # triangle_normals /= np.linalg.norm(triangle_normals, axis=1)[:, np.newaxis]
+    # np.seterr(invalid="warn")
+
+    # # For each vertex, calculate the average of the normals of the triangles that contain the vertex
+    # vertex_normals = np.zeros_like(vertices)
+    # np.add.at(
+    #     vertex_normals,
+    #     np.repeat(np.arange(vertices.shape[0]) // 3 * 3, 3),
+    #     triangle_normals,
+    # )
+    # vertex_normals /= 3
+
+    # # Normalize the vertex normals to unit length
+    # vertex_normals /= np.linalg.norm(vertex_normals, axis=1)[:, np.newaxis]
+    # normals = vertex_normals.reshape((-1, 3))
+
+    # Set the 'points' attribute using your vertex coordinates
+    # You need to convert your numpy array to a list of Gf.Vec3f objects
+    points = [
+        Gf.Vec3f(vertices[i][0].item(), vertices[i][1].item(), vertices[i][2].item())
+        for i in range(len(vertices))
+    ]
+    mesh_prim.CreatePointsAttr(points)
+
+    # Set the 'normals' attribute using your vertex normals
+    # You need to convert your numpy array to a list of Gf.Vec3f objects
+    # normals = [Gf.Vec3f(normals[i]) for i in range(len(normals))]
+    # mesh_prim.CreateNormalsAttr(normals)
+
+    # Set the 'faceVertexCounts' attribute
+    # This is a list where each element is the number of vertices in a face
+    # For a mesh of triangles, each face has 3 vertices
+    faceVertexCounts = [3 for _ in range(len(points) // 3)]
+    mesh_prim.CreateFaceVertexCountsAttr(faceVertexCounts)
+
+    # Set the 'faceVertexIndices' attribute
+    # This is a list where each group of three integers represents a triangle
+    # The integers are indices into the 'points' list
+    faceVertexIndices = [i for i in range(len(points))]
+    mesh_prim.CreateFaceVertexIndicesAttr(faceVertexIndices)
+
+    # Save the stage to a USD file
+    stage.Save()
+    # Process the content as needed
+    return {"ok": True}
+
+
 # File Browser Endpoint
 file_browser_router = routers.ServiceAPIRouter(tags=["connector"])
 
@@ -388,9 +477,9 @@ async def handle_forma(
     carb.log_info("FormaRequestBody: ")
     carb.log_info(f"{request}")
 
-    """ # validate extension version
+    # validate extension version
     major_minor_version: str = ".".join(g_forma_link.version.split(".")[:-1])
-    version_validation = forma_validation.validate_extension_version(
+    version_validation = validate_extension_version(
         request.extension_version, major_minor_version
     )
     response = FormaResponseBody.parse_obj(
@@ -413,7 +502,7 @@ async def handle_forma(
     request_manager = get_request_manager()
     await request_manager.add_request(request, response)
 
-    return response """
+    return response
 
 
 class ConnectorServiceContext:
@@ -441,7 +530,7 @@ class FormaLinkExtension(omni.ext.IExt):
             f"[{ext}] APIs are up at {self._settings.get_kit_services_transport_port()}"
         )
 
-        # self._settings_window = PainterSettingsWindow(str(self.__version))
+        self._settings_window = FormaSettingsWindow(str(self.__version))
         # Context for the service and dialog callbacks (currently unused)
         self.context = ConnectorServiceContext()
 
@@ -449,6 +538,8 @@ class FormaLinkExtension(omni.ext.IExt):
         main.register_router(file_browser_router)
         forma_router.register_facility("context", self.context)
         main.register_router(forma_router)
+        import_mesh_router.register_facility("context", self.context)
+        main.register_router(import_mesh_router)
 
         print(
             f"[{ext}] APIs are up at {self._settings.get_kit_services_transport_port()}"
@@ -470,6 +561,7 @@ class FormaLinkExtension(omni.ext.IExt):
 
         main.deregister_endpoint("post", forma_constants.ServiceEndpoints.FILE_BROWSER)
         main.deregister_endpoint("post", forma_constants.ServiceEndpoints.FORMA_LINK)
+        main.deregister_endpoint("post", forma_constants.ServiceEndpoints.IMPORT_MESH)
 
     def _set_busy(self):
         self._settings_window.busy = True

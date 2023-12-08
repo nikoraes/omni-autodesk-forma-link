@@ -1,4 +1,4 @@
-from typing import List
+from typing import List, Dict
 import pathlib
 import pydantic
 import os
@@ -16,28 +16,17 @@ class FormaRequestBody(pydantic.BaseModel):
     )
     extension_version: str = pydantic.Field("0.0", title="Extension version")
     execute_command: str = pydantic.Field("", title="Execute Command")
-    nucleus_folder: str = pydantic.Field(
-        "", title="Nucleus folder where mesh get copied to"
+    forma_path: str = pydantic.Field("", title="Forma Path")
+    usd_path: str = pydantic.Field(
+        "", title="Nucleus folder where resulting USD will be saved"
     )  # default value received from connector should be omniverse://localhost/Projects/Forma
     autosave_stage: bool = pydantic.Field(True, title="Autosave Stage")
-
-    @property
-    def mesh_file_name(self) -> str:
-        return os.path.basename(self.usd_path)
-
-    @property
-    def mesh_name(self) -> str:
-        return pathlib.Path(self.mesh_file_name).stem
-
-    @property
-    def mesh_file_format(self) -> str:
-        return pathlib.Path(self.mesh_file_name).suffix.lstrip(".")
 
     def __str__(self) -> str:
         return (
             f"protocol_version: {self.protocol_version}\n"
             f"execute_command: {self.execute_command}\n"
-            f"nucleus_folder: {self.nucleus_folder}\n"
+            f"usd_path: {self.usd_path}\n"
             f"autosave_stage: {self.autosave_stage}\n"
         )
 
