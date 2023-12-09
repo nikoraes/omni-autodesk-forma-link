@@ -6,6 +6,8 @@ import shutil
 import numpy as np
 from collections import deque, Counter
 from fastapi import FastAPI, File, UploadFile, Form
+from fastapi.responses import JSONResponse
+from fastapi.middleware.cors import CORSMiddleware
 import omni.client
 import omni.ext
 import omni.kit.ui
@@ -16,7 +18,7 @@ import omni.ui as ui
 import omni.ext
 import carb
 from omni.services.core import main, routers
-from pxr import Gf, UsdGeom
+from pxr import Gf, Usd, UsdGeom
 from . import (
     file_picker_dialog,
     forma_core,
@@ -131,45 +133,27 @@ class RequestManager:
             # painter_validation.validate_usd(request.usd_geometry_path, log=True)
             # painter_validation.validate_usd(request.usd_materials_path, log=True)
 
-            # make a copy of the usd geometry file. This is because subsequent paint strokes will only export the mesh for the current texture set, so we want
-            # to ensure that the entire mesh is preserved while painting
-            """usd_paths = forma_data.UsdPaths(request)
-            if request.usd_painter_source:
+            s = Usd.Stage.Open(request.usd_path)
+
+        return response
+
+    """ if request.usd_geometry_path != usd_paths.root_layer_geometry_path:
                 try:
                     painter_core.log(
-                        f"Saving flattened Painter USD geometry source file from {request.usd_painter_source} to {usd_paths.usd_geometry_path}.",
+                        f"Copying {request.usd_geometry_path} to {usd_paths.root_layer_geometry_path}.",
                         severity=painter_data.SEVERITY.INFO,
                     )
-                    s = Usd.Stage.Open(request.usd_painter_source)
-                    s.Flatten()
+                    s = Usd.Stage.Open(request.usd_geometry_path)
                     s.Export(usd_paths.root_layer_geometry_path)
-                except:
+                except OSError:
                     painter_core.log(
-                        "Cannot create Stage because Painter USD geometry file failed to copy.",
+                        "Cannot create Stage because USD geometry file failed to copy.",
                         severity=painter_data.SEVERITY.ERROR,
                         notify=True,
                         hide_after_timeout=False,
                     )
-                    return"""
-
-            """ else:
-                if request.usd_geometry_path != usd_paths.root_layer_geometry_path:
-                    try:
-                        painter_core.log(
-                            f"Copying {request.usd_geometry_path} to {usd_paths.root_layer_geometry_path}.",
-                            severity=painter_data.SEVERITY.INFO,
-                        )
-                        s = Usd.Stage.Open(request.usd_geometry_path)
-                        s.Export(usd_paths.root_layer_geometry_path)
-                    except OSError:
-                        painter_core.log(
-                            "Cannot create Stage because USD geometry file failed to copy.",
-                            severity=painter_data.SEVERITY.ERROR,
-                            notify=True,
-                            hide_after_timeout=False,
-                        )
-                        return
-
+                    return """
+    """
             # import the mesh
             mesh_task_id = uuid.uuid4().hex
             mesh_queue_id = f"{request_id}_{mesh_task_id}"
@@ -199,8 +183,7 @@ class RequestManager:
             # forma_core.save_stage()
 
             # await self._process_nucleus_task_data(nucleus_task_data)
-"""
-        return response
+    """
 
     async def _request_import_mesh(
         self, usd_paths: forma_data.UsdPaths, mesh_queue_id: str
@@ -340,36 +323,6 @@ async def handle_import_mesh(id: str, file: UploadFile = File(...)):
 
     vertices = mesh.reshape((-1, 3))
 
-    # Assuming `mesh` is your numpy array of vertex coordinates
-    # and `vertex_normals` is your numpy array of vertex normals
-    # Reshape the arrays to 2D arrays where each row is a vertex or a normal
-    # vertices = mesh.reshape((-1, 3))
-
-    # Calculate the vectors for two edges of each triangle
-    # edge1 = vertices[1::3] - vertices[0::3]
-    # edge2 = vertices[2::3] - vertices[0::3]
-
-    # # Calculate the cross product of the two edges to get the normal of each triangle
-    # triangle_normals = np.cross(edge1, edge2)
-
-    # # Normalize the triangle normals to unit length
-    # np.seterr(invalid="ignore")
-    # triangle_normals /= np.linalg.norm(triangle_normals, axis=1)[:, np.newaxis]
-    # np.seterr(invalid="warn")
-
-    # # For each vertex, calculate the average of the normals of the triangles that contain the vertex
-    # vertex_normals = np.zeros_like(vertices)
-    # np.add.at(
-    #     vertex_normals,
-    #     np.repeat(np.arange(vertices.shape[0]) // 3 * 3, 3),
-    #     triangle_normals,
-    # )
-    # vertex_normals /= 3
-
-    # # Normalize the vertex normals to unit length
-    # vertex_normals /= np.linalg.norm(vertex_normals, axis=1)[:, np.newaxis]
-    # normals = vertex_normals.reshape((-1, 3))
-
     # Set the 'points' attribute using your vertex coordinates
     # You need to convert your numpy array to a list of Gf.Vec3f objects
     points = [
@@ -377,11 +330,6 @@ async def handle_import_mesh(id: str, file: UploadFile = File(...)):
         for i in range(len(vertices))
     ]
     mesh_prim.CreatePointsAttr(points)
-
-    # Set the 'normals' attribute using your vertex normals
-    # You need to convert your numpy array to a list of Gf.Vec3f objects
-    # normals = [Gf.Vec3f(normals[i]) for i in range(len(normals))]
-    # mesh_prim.CreateNormalsAttr(normals)
 
     # Set the 'faceVertexCounts' attribute
     # This is a list where each element is the number of vertices in a face
@@ -409,7 +357,6 @@ file_browser_router = routers.ServiceAPIRouter(tags=["connector"])
 @file_browser_router.post(forma_constants.ServiceEndpoints.FILE_BROWSER)
 async def handle_filebrowser(
     req: FileBrowserRequestBody,
-    service_context=file_browser_router.get_facility("context"),
 ):
     carb.log_info("Start filebrowser service endpoint")
 
@@ -423,7 +370,7 @@ async def handle_filebrowser(
             "extension_version_is_valid": ext_version_validation.succeeded,
             "url": "",
             "options": "None Selected",
-            "status": "Everything is great",
+            "status": "OK",
             "succeeded": ext_version_validation.succeeded,
         }
     )
@@ -458,7 +405,7 @@ async def handle_filebrowser(
             "extension_version_is_valid": ext_version_validation.succeeded,
             "url": dialog_wrapper.file_url,
             "options": "None Selected",
-            "status": "Everything is great",
+            "status": "OK",
             "succeeded": True,
         }
     )
@@ -533,6 +480,14 @@ class FormaLinkExtension(omni.ext.IExt):
         self._settings_window = FormaSettingsWindow(str(self.__version))
         # Context for the service and dialog callbacks (currently unused)
         self.context = ConnectorServiceContext()
+
+        main.get_app().add_middleware(
+            CORSMiddleware,
+            allow_origins=["*"],
+            allow_credentials=True,
+            allow_methods=["*"],
+            allow_headers=["*"],
+        )
 
         file_browser_router.register_facility("context", self.context)
         main.register_router(file_browser_router)
