@@ -15,7 +15,6 @@ class FormaRequestBody(pydantic.BaseModel):
         g_forma_protocol_version, title="Protocol version"
     )
     extension_version: str = pydantic.Field("0.0", title="Extension version")
-    execute_command: str = pydantic.Field("", title="Execute Command")
     forma_path: str = pydantic.Field("", title="Forma Path")
     usd_path: str = pydantic.Field(
         "", title="Nucleus folder where resulting USD will be saved"
@@ -42,7 +41,6 @@ class FormaResponseBody(pydantic.BaseModel):
         True, title="Indicates if the operation succeeded or failed"
     )
     usd_path: str = pydantic.Field("", title="The path of the exported USD file")
-    selected_prims: List[str] = pydantic.Field([], title="The currently selected prims")
 
 
 class FileBrowserRequestBody(pydantic.BaseModel):
